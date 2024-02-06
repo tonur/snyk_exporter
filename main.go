@@ -52,7 +52,7 @@ var (
 
 func main() {
 	flags := kingpin.New("snyk_exporter", "Snyk exporter for Prometheus. Provide your Snyk API token and the organization(s) to scrape to expose Prometheus metrics.")
-	snykAPIURL := flags.Flag("snyk.api-url", "Snyk API URL").Default("https://snyk.io/api/v1").String()
+	snykAPIURL := flags.Flag("snyk.api-url", "Snyk API URL").Default("https://api.snyk.io").String()
 	snykAPIToken := flags.Flag("snyk.api-token", "Snyk API token").Required().String()
 	snykInterval := flags.Flag("snyk.interval", "Polling interval for requesting data from Snyk API in seconds").Short('i').Default("600").Int()
 	snykOrganizations := flags.Flag("snyk.organization", "Snyk organization ID to scrape projects from (can be repeated for multiple organizations)").Strings()
@@ -193,16 +193,16 @@ func runAPIPolling(ctx context.Context, url, token string, organizationIDs []str
 func pollAPI(ctx context.Context, client *client, organizations []org) {
 	var gaugeResults []gaugeResult
 	for _, organization := range organizations {
-		log.Infof("Collecting for organization '%s'", organization.Name)
+		log.Infof("Collecting for organization '%s'", organization.Attributes.Name)
 		results, err := collect(ctx, client, organization)
 		if err != nil {
 			log.With("error", err).
-				With("organzationName", organization.Name).
+				With("organzationName", organization.Attributes.Name).
 				With("organzationId", organization.ID).
-				Errorf("Collection failed for organization '%s': %v", organization.Name, err)
+				Errorf("Collection failed for organization '%s': %v", organization.Attributes.Name, err)
 			continue
 		}
-		log.Infof("Recorded %d results for organization '%s'", len(results), organization.Name)
+		log.Infof("Recorded %d results for organization '%s'", len(results), organization.Attributes.Name)
 		gaugeResults = append(gaugeResults, results...)
 		// stop right away in case of the context being cancelled. This ensures that
 		// we don't wait for a complete collect run for all organizations before
@@ -225,7 +225,7 @@ func pollAPI(ctx context.Context, client *client, organizations []org) {
 func organizationNames(orgs []org) []string {
 	var names []string
 	for _, org := range orgs {
-		names = append(names, org.Name)
+		names = append(names, org.Attributes.Name)
 	}
 	return names
 }
@@ -278,36 +278,27 @@ type gaugeResult struct {
 }
 
 func collect(ctx context.Context, client *client, organization org) ([]gaugeResult, error) {
-	projects, err := client.getProjects(organization.ID)
-	if err != nil {
-		return nil, fmt.Errorf("get projects for organization: %w", err)
-	}
-
 	var gaugeResults []gaugeResult
-	for _, project := range projects.Projects {
-		start := time.Now()
-		issues, err := client.getIssues(organization.ID, project.ID)
-		duration := time.Since(start)
-		if err != nil {
-			log.Errorf("Failed to get issues for organization %s (%s) and project %s (%s): duration %v:  %v", organization.Name, organization.ID, project.Name, project.ID, duration, err)
-			continue
-		}
-		results := aggregateIssues(issues.Issues)
-		gaugeResults = append(gaugeResults, gaugeResult{
-			organization: organization.Name,
-			project:      project.Name,
-			results:      results,
-			isMonitored:  project.IsMonitored,
-		})
-		log.Debugf("Collected data in %v for %s %s", duration, project.ID, project.Name)
-		// stop right away in case of the context being cancelled. This ensures that
-		// we don't wait for a complete collect run for all projects before
-		// stopping.
-		select {
-		case <-ctx.Done():
-			return nil, nil
-		default:
-		}
+	start := time.Now()
+	issues, err := client.getIssues(organization.ID)
+	duration := time.Since(start)
+	if err != nil {
+		log.Errorf("Failed to get issues for organization %s (%s): duration %v:  %v", organization.Attributes.Name, organization.ID, duration, err)
+		return nil, nil
+	}
+	results := aggregateIssues(issues.Issues)
+	gaugeResults = append(gaugeResults, gaugeResult{
+		organization: organization.Attributes.Name,
+		results:      results,
+	})
+	log.Debugf("Collected data in %v for %s %s", duration, organization.ID, organization.Attributes.Name)
+	// stop right away in case of the context being cancelled. This ensures that
+	// we don't wait for a complete collect run for all projects before
+	// stopping.
+	select {
+	case <-ctx.Done():
+		return nil, nil
+	default:
 	}
 	return gaugeResults, nil
 }
@@ -323,7 +314,7 @@ type aggregateResult struct {
 }
 
 func aggregationKey(i issue) string {
-	return fmt.Sprintf("%s_%s_%s_%t_%t_%t", i.IssueData.Severity, i.IssueType, i.IssueData.Title, i.Ignored, i.FixInfo.Upgradeable, i.FixInfo.Patchable)
+	return fmt.Sprintf("%s_%s_%s_%t_%t_%t", i.Severity, i.IssueType, i.Title, i.Ignored, i.Coordinates.Upgradeable, i.Coordinates.Patchable)
 }
 
 func aggregateIssues(issues []issue) []aggregateResult {
@@ -334,12 +325,12 @@ func aggregateIssues(issues []issue) []aggregateResult {
 		if !ok {
 			aggregate = aggregateResult{
 				issueType:   issue.IssueType,
-				title:       issue.IssueData.Title,
-				severity:    issue.IssueData.Severity,
+				title:       issue.Title,
+				severity:    issue.Severity,
 				count:       0,
 				ignored:     issue.Ignored,
-				upgradeable: issue.FixInfo.Upgradeable,
-				patchable:   issue.FixInfo.Patchable,
+				upgradeable: issue.Coordinates.Upgradeable,
+				patchable:   issue.Coordinates.Patchable,
 			}
 		}
 		aggregate.count++

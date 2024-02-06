@@ -40,7 +40,7 @@ Snyk exporter for Prometheus. Provide your Snyk API token and the organization(s
 
 Flags:
   -h, --help               Show context-sensitive help (also try --help-long and --help-man).
-      --snyk.api-url="https://snyk.io/api/v1"
+      --snyk.api-url="https://api.snyk.io"
                            Snyk API URL
       --snyk.api-token=SNYK.API-TOKEN
                            Snyk API token

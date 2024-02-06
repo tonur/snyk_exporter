@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
+	"strings"
 
 	"github.com/prometheus/common/log"
 )
@@ -18,7 +19,7 @@ type client struct {
 }
 
 func (c *client) getOrganizations() (orgsResponse, error) {
-	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/orgs", c.baseURL), nil)
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/rest/orgs", c.baseURL), nil)
 	if err != nil {
 		return orgsResponse{}, err
 	}
@@ -35,7 +36,7 @@ func (c *client) getOrganizations() (orgsResponse, error) {
 }
 
 func (c *client) getProjects(organization string) (projectsResponse, error) {
-	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/org/%s/projects", c.baseURL, organization), nil)
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/rest/org/%s/projects", c.baseURL, organization), nil)
 	if err != nil {
 		return projectsResponse{}, err
 	}
@@ -43,15 +44,33 @@ func (c *client) getProjects(organization string) (projectsResponse, error) {
 	if err != nil {
 		return projectsResponse{}, err
 	}
-	var projects projectsResponse
-	err = json.NewDecoder(response.Body).Decode(&projects)
+	var projectsResponseObject projectsResponse
+	err = json.NewDecoder(response.Body).Decode(&projectsResponseObject)
 	if err != nil {
 		return projectsResponse{}, err
 	}
-	return projects, nil
+	var projects []project
+	projects = append(projects, projectsResponseObject.Projects...)
+	for !strings.EqualFold(projectsResponseObject.Links.Next, "") {
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s%s", c.baseURL, projectsResponseObject.Links.Next), nil)
+		if err != nil {
+			return projectsResponse{}, err
+		}
+		response, err := c.do(req)
+		if err != nil {
+			return projectsResponse{}, err
+		}
+		var projectsResponseObject projectsResponse
+		err = json.NewDecoder(response.Body).Decode(&projectsResponseObject)
+		if err != nil {
+			return projectsResponse{}, err
+		}
+		projects = append(projects, projectsResponseObject.Projects...)
+	}
+	return projectsResponse{projects, nil}, nil
 }
 
-func (c *client) getIssues(organizationID, projectID string) (issuesResponse, error) {
+func (c *client) getIssues(organizationID string) (issuesResponse, error) {
 	postData := issuesPostData{
 		Filters: issueFilters{
 			Severities: []string{
@@ -64,7 +83,7 @@ func (c *client) getIssues(organizationID, projectID string) (issuesResponse, er
 	if err != nil {
 		return issuesResponse{}, err
 	}
-	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/org/%s/project/%s/aggregated-issues", c.baseURL, organizationID, projectID), &reader)
+	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/rest/org/%s/issues", c.baseURL, organizationID), &reader)
 	if err != nil {
 		return issuesResponse{}, err
 	}
@@ -72,16 +91,36 @@ func (c *client) getIssues(organizationID, projectID string) (issuesResponse, er
 	if err != nil {
 		return issuesResponse{}, err
 	}
-	var issues issuesResponse
-	err = json.NewDecoder(response.Body).Decode(&issues)
+	var issuesResponseObject issuesResponse
+	err = json.NewDecoder(response.Body).Decode(&issuesResponseObject)
 	if err != nil {
 		return issuesResponse{}, err
 	}
-	return issues, nil
+	var issues []issue
+	issues = append(issues, issuesResponseObject.Issues...)
+	for !strings.EqualFold(issuesResponseObject.Links.Next, "") {
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s%s", c.baseURL, issuesResponseObject.Links.Next), nil)
+		if err != nil {
+			return issuesResponse{}, err
+		}
+		response, err := c.do(req)
+		if err != nil {
+			return issuesResponse{}, err
+		}
+		var issuesResponseObject issuesResponse
+		err = json.NewDecoder(response.Body).Decode(&issuesResponseObject)
+		if err != nil {
+			return issuesResponse{}, err
+		}
+		issues = append(issues, issuesResponseObject.Issues...)
+	}
+	return issuesResponse{issues, nil}, nil
 }
 
 func (c *client) do(req *http.Request) (*http.Response, error) {
-	req.Header.Add("Authorization", fmt.Sprintf("token %s", c.token))
+	req.Header.Add("authorization", fmt.Sprintf("TOKEN %s", c.token))
+	req.URL.Query().Add("version", "2024-01-23")
+	req.URL.Query().Add("limit", "100")
 	response, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -104,55 +143,55 @@ func (c *client) do(req *http.Request) (*http.Response, error) {
 }
 
 type orgsResponse struct {
-	Orgs []org `json:"orgs,omitempty"`
+	Orgs  []org `json:"data,omitempty"`
+	Links *struct {
+		Next string `next:"next,omitempty"`
+	} `json:"links,omitempty"`
 }
 
 type org struct {
-	ID    string `json:"id,omitempty"`
-	Name  string `json:"name,omitempty"`
-	Group *struct {
-		Name string `json:"name,omitempty"`
-		ID   string `json:"id,omitempty"`
-	} `json:"group,omitempty"`
+	ID         string `json:"id,omitempty"`
+	Type       string `json:"type,omitempty"`
+	Attributes *struct {
+		GroupID string `json:"group_id,omitempty"`
+		Name    string `json:"name,omitempty"`
+	} `json:"attributes,omitempty"`
 }
 
 type projectsResponse struct {
-	Org      projectOrg `json:"org,omitempty"`
-	Projects []project  `json:"projects,omitempty"`
-}
-
-type projectOrg struct {
-	ID   string `json:"id,omitempty"`
-	Name string `json:"name,omitempty"`
+	Projects []project `json:"data,omitempty"`
+	Links    *struct {
+		Next string `next:"next,omitempty"`
+	} `json:"links,omitempty"`
 }
 
 type project struct {
-	Name          string `json:"name,omitempty"`
-	ID            string `json:"id,omitempty"`
-	IsMonitored   bool   `json:"isMonitored,omitempty"`
+	ID         string `json:"id,omitempty"`
+	Type       string `json:"type,omitempty"`
+	Attributes *struct {
+		Name string `json:"name,omitempty"`
+	} `json:"attributes,omitempty"`
 }
 
 type issuesResponse struct {
-	Issues []issue `json:"issues,omitempty"`
+	Issues []issue `json:"data,omitempty"`
+	Links  *struct {
+		Next string `next:"next,omitempty"`
+	} `json:"links,omitempty"`
 }
 
 type issue struct {
-	ID        string    `json:"id,omitempty"`
-	IssueType string    `json:"issueType"`
-	IssueData issueData `json:"issueData,omitempty"`
-	Ignored   bool      `json:"isIgnored"`
-	FixInfo   fixInfo   `json:"fixInfo,omitempty"`
+	ID          string      `json:"id,omitempty"`
+	IssueType   string      `json:"issueType"`
+	Severity    string      `json:" effective_severity_level,omitempty"`
+	Title       string      `json:"title,omitempty"`
+	Ignored     bool        `json:"ignored"`
+	Coordinates coordinates `json:"coordinates,omitempty"`
 }
 
-type issueData struct {
-	ID       string `json:"id,omitempty"`
-	Title    string `json:"title,omitempty"`
-	Severity string `json:"severity,omitempty"`
-}
-
-type fixInfo struct {
-	Upgradeable bool `json:"isUpgradable"`
-	Patchable   bool `json:"isPatchable"`
+type coordinates struct {
+	Upgradeable bool `json:"is_upgradable"`
+	Patchable   bool `json:"is_patchable"`
 }
 
 type license struct{}
