@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -36,7 +35,7 @@ func (c *client) getOrganizations() (orgsResponse, error) {
 }
 
 func (c *client) getProjects(organization string) (projectsResponse, error) {
-	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/rest/org/%s/projects", c.baseURL, organization), nil)
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/rest/orgs/%s/projects", c.baseURL, organization), nil)
 	if err != nil {
 		return projectsResponse{}, err
 	}
@@ -71,19 +70,8 @@ func (c *client) getProjects(organization string) (projectsResponse, error) {
 }
 
 func (c *client) getIssues(organizationID string) (issuesResponse, error) {
-	postData := issuesPostData{
-		Filters: issueFilters{
-			Severities: []string{
-				"critical", "high", "medium", "low",
-			},
-		},
-	}
-	var reader bytes.Buffer
-	err := json.NewEncoder(&reader).Encode(&postData)
-	if err != nil {
-		return issuesResponse{}, err
-	}
-	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/rest/org/%s/issues", c.baseURL, organizationID), &reader)
+
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/rest/orgs/%s/issues", c.baseURL, organizationID), nil)
 	if err != nil {
 		return issuesResponse{}, err
 	}
@@ -119,8 +107,12 @@ func (c *client) getIssues(organizationID string) (issuesResponse, error) {
 
 func (c *client) do(req *http.Request) (*http.Response, error) {
 	req.Header.Add("authorization", fmt.Sprintf("TOKEN %s", c.token))
-	req.URL.Query().Add("version", "2024-01-23")
-	req.URL.Query().Add("limit", "100")
+
+	query := req.URL.Query()
+	query.Set("version", "2024-01-23")
+	query.Set("limit", "100")
+	req.URL.RawQuery = query.Encode()
+
 	response, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -137,7 +129,7 @@ func (c *client) do(req *http.Request) (*http.Response, error) {
 		} else {
 			log.Debugf("Failed request dump: %s", requestDump)
 		}
-		return nil, fmt.Errorf("request not OK: %s: body: %s", response.Status, body)
+		return nil, fmt.Errorf("request not OK: %s: url: %s body: %s", response.Status, req.URL, body)
 	}
 	return response, nil
 }
@@ -195,13 +187,3 @@ type coordinates struct {
 }
 
 type license struct{}
-
-type issuesPostData struct {
-	Filters issueFilters `json:"filters,omitempty"`
-}
-type issueFilters struct {
-	Severities []string `json:"severities,omitempty"`
-	Types      []string `json:"types,omitempty"`
-	Ignored    bool     `json:"ignored,omitempty"`
-	Patched    bool     `json:"patched,omitempty"`
-}
