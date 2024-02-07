@@ -69,12 +69,18 @@ func (c *client) getProjects(organization string) (projectsResponse, error) {
 	return projectsResponse{projects, nil}, nil
 }
 
-func (c *client) getIssues(organizationID string) (issuesResponse, error) {
+func (c *client) getIssues(organizationID, projectID string) (issuesResponse, error) {
 
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/rest/orgs/%s/issues", c.baseURL, organizationID), nil)
 	if err != nil {
 		return issuesResponse{}, err
 	}
+  // Find any issues that has a relation to this project ID
+	query := req.URL.Query()
+	query.Set("scan_item.id", projectID)
+	query.Set("scan_item.type", "project")
+	req.URL.RawQuery = query.Encode()
+
 	response, err := c.do(req)
 	if err != nil {
 		return issuesResponse{}, err

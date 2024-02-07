@@ -278,27 +278,33 @@ type gaugeResult struct {
 }
 
 func collect(ctx context.Context, client *client, organization org) ([]gaugeResult, error) {
-	var gaugeResults []gaugeResult
-	start := time.Now()
-	issues, err := client.getIssues(organization.ID)
-	duration := time.Since(start)
+	projects, err := client.getProjects(organization.ID)
 	if err != nil {
-		log.Errorf("Failed to get issues for organization %s (%s): duration %v:  %v", organization.Attributes.Name, organization.ID, duration, err)
-		return nil, nil
+		return nil, fmt.Errorf("get projects for organization: %w", err)
 	}
-	results := aggregateIssues(issues.Issues)
-	gaugeResults = append(gaugeResults, gaugeResult{
-		organization: organization.Attributes.Name,
-		results:      results,
-	})
-	log.Debugf("Collected data in %v for %s %s", duration, organization.ID, organization.Attributes.Name)
-	// stop right away in case of the context being cancelled. This ensures that
-	// we don't wait for a complete collect run for all projects before
-	// stopping.
-	select {
-	case <-ctx.Done():
-		return nil, nil
-	default:
+	var gaugeResults []gaugeResult
+	for _, project := range projects.Projects {
+		start := time.Now()
+		issues, err := client.getIssues(organization.ID, project.ID)
+		duration := time.Since(start)
+		if err != nil {
+			log.Errorf("Failed to get issues for organization %s (%s) and project %s (%s): duration %v:  %v", organization.Attributes.Name, organization.ID, project.Attributes.Name, project.ID, duration, err)
+			continue
+		}
+		results := aggregateIssues(issues.Issues)
+		gaugeResults = append(gaugeResults, gaugeResult{
+			organization: organization.Attributes.Name,
+			results:      results,
+		})
+		log.Debugf("Collected data in %v for %s %s", duration, organization.ID, organization.Attributes.Name)
+		// stop right away in case of the context being cancelled. This ensures that
+		// we don't wait for a complete collect run for all projects before
+		// stopping.
+		select {
+		case <-ctx.Done():
+			return nil, nil
+		default:
+		}
 	}
 	return gaugeResults, nil
 }
