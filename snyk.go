@@ -18,6 +18,7 @@ type client struct {
 }
 
 func (c *client) getOrganizations() (orgsResponse, error) {
+	log.Debugf("Start finding organizations")
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/rest/orgs", c.baseURL), nil)
 	if err != nil {
 		return orgsResponse{}, err
@@ -31,11 +32,13 @@ func (c *client) getOrganizations() (orgsResponse, error) {
 	if err != nil {
 		return orgsResponse{}, err
 	}
+	log.Debugf("Done finding organizations, found: %d", len(orgs.Orgs))
 	return orgs, nil
 }
 
-func (c *client) getProjects(organization string) (projectsResponse, error) {
-	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/rest/orgs/%s/projects", c.baseURL, organization), nil)
+func (c *client) getProjects(organizationID string) (projectsResponse, error) {
+	log.Debugf("Start finding projects for: %s", organizationID)
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/rest/orgs/%s/projects", c.baseURL, organizationID), nil)
 	if err != nil {
 		return projectsResponse{}, err
 	}
@@ -51,6 +54,7 @@ func (c *client) getProjects(organization string) (projectsResponse, error) {
 	var projects []project
 	projects = append(projects, projectsResponseObject.Projects...)
 	for !strings.EqualFold(projectsResponseObject.Links.Next, "") {
+		log.Debugf("More projects to be found, currently: %d", len(projects))
 		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s%s", c.baseURL, projectsResponseObject.Links.Next), nil)
 		if err != nil {
 			return projectsResponse{}, err
@@ -59,18 +63,18 @@ func (c *client) getProjects(organization string) (projectsResponse, error) {
 		if err != nil {
 			return projectsResponse{}, err
 		}
-		var projectsResponseObject projectsResponse
 		err = json.NewDecoder(response.Body).Decode(&projectsResponseObject)
 		if err != nil {
 			return projectsResponse{}, err
 		}
 		projects = append(projects, projectsResponseObject.Projects...)
-	}
+	}	
+	log.Debugf("Done finding projects for: %s, found: %d", organizationID, len(projects))
 	return projectsResponse{projects, nil}, nil
 }
 
 func (c *client) getIssues(organizationID, projectID string) (issuesResponse, error) {
-
+	log.Debugf("Start finding issues for: %s", projectID)
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/rest/orgs/%s/issues", c.baseURL, organizationID), nil)
 	if err != nil {
 		return issuesResponse{}, err
@@ -80,7 +84,7 @@ func (c *client) getIssues(organizationID, projectID string) (issuesResponse, er
 	query.Set("scan_item.id", projectID)
 	query.Set("scan_item.type", "project")
 	req.URL.RawQuery = query.Encode()
-
+	
 	response, err := c.do(req)
 	if err != nil {
 		return issuesResponse{}, err
@@ -101,13 +105,13 @@ func (c *client) getIssues(organizationID, projectID string) (issuesResponse, er
 		if err != nil {
 			return issuesResponse{}, err
 		}
-		var issuesResponseObject issuesResponse
 		err = json.NewDecoder(response.Body).Decode(&issuesResponseObject)
 		if err != nil {
 			return issuesResponse{}, err
 		}
 		issues = append(issues, issuesResponseObject.Issues...)
 	}
+	log.Debugf("Done finding issues for: %s, found: %d", projectID, len(issues))
 	return issuesResponse{issues, nil}, nil
 }
 
@@ -119,6 +123,7 @@ func (c *client) do(req *http.Request) (*http.Response, error) {
 	query.Set("limit", "100")
 	req.URL.RawQuery = query.Encode()
 
+	log.Debugf("Running request to URL: %v", req.URL)
 	response, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
