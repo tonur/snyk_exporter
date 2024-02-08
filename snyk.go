@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
-	"strings"
 
 	"github.com/prometheus/common/log"
 )
@@ -53,9 +52,12 @@ func (c *client) getProjects(organizationID string) (projectsResponse, error) {
 	}
 	var projects []project
 	projects = append(projects, projectsResponseObject.Projects...)
-	for !strings.EqualFold(projectsResponseObject.Links.Next, "") {
+
+	var nextLink string = projectsResponseObject.Links.Next
+	// Loop over subsequent pages if there is a 'next' link
+	for nextLink != "" {
 		log.Debugf("More projects to be found, currently: %d", len(projects))
-		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s%s", c.baseURL, projectsResponseObject.Links.Next), nil)
+		req, err := http.NewRequest(http.MethodGet, c.baseURL+nextLink, nil)
 		if err != nil {
 			return projectsResponse{}, err
 		}
@@ -63,12 +65,21 @@ func (c *client) getProjects(organizationID string) (projectsResponse, error) {
 		if err != nil {
 			return projectsResponse{}, err
 		}
+		defer response.Body.Close()
+
 		err = json.NewDecoder(response.Body).Decode(&projectsResponseObject)
 		if err != nil {
 			return projectsResponse{}, err
 		}
+
 		projects = append(projects, projectsResponseObject.Projects...)
-	}	
+
+		if nextLink == projectsResponseObject.Links.Next {
+			log.Debugf("No more new link, stopping")
+			break
+		}
+		nextLink = projectsResponseObject.Links.Next
+	}
 	log.Debugf("Done finding projects for: %s, found: %d", organizationID, len(projects))
 	return projectsResponse{projects, nil}, nil
 }
@@ -79,25 +90,38 @@ func (c *client) getIssues(organizationID, projectID string) (issuesResponse, er
 	if err != nil {
 		return issuesResponse{}, err
 	}
-  // Find any issues that has a relation to this project ID
+	// Find any issues that has a relation to this project ID
 	query := req.URL.Query()
 	query.Set("scan_item.id", projectID)
 	query.Set("scan_item.type", "project")
 	req.URL.RawQuery = query.Encode()
-	
+
 	response, err := c.do(req)
 	if err != nil {
 		return issuesResponse{}, err
 	}
+	defer response.Body.Close()
+
 	var issuesResponseObject issuesResponse
 	err = json.NewDecoder(response.Body).Decode(&issuesResponseObject)
 	if err != nil {
 		return issuesResponse{}, err
 	}
+
 	var issues []issue
 	issues = append(issues, issuesResponseObject.Issues...)
-	for !strings.EqualFold(issuesResponseObject.Links.Next, "") {
-		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s%s", c.baseURL, issuesResponseObject.Links.Next), nil)
+
+	var nextLink string = issuesResponseObject.Links.Next
+	// Loop over subsequent pages if there is a 'next' link
+	for nextLink != "" {
+		log.Debugf("More issues to be found, currently: %d", len(issues))
+		req, err := http.NewRequest(http.MethodGet, c.baseURL+nextLink, nil)
+		// Find any issues that has a relation to this project ID
+		query := req.URL.Query()
+		query.Set("scan_item.id", projectID)
+		query.Set("scan_item.type", "project")
+		req.URL.RawQuery = query.Encode()
+
 		if err != nil {
 			return issuesResponse{}, err
 		}
@@ -105,12 +129,22 @@ func (c *client) getIssues(organizationID, projectID string) (issuesResponse, er
 		if err != nil {
 			return issuesResponse{}, err
 		}
+		defer response.Body.Close()
+
 		err = json.NewDecoder(response.Body).Decode(&issuesResponseObject)
 		if err != nil {
 			return issuesResponse{}, err
 		}
+
 		issues = append(issues, issuesResponseObject.Issues...)
+
+		if nextLink == issuesResponseObject.Links.Next {
+			log.Debugf("No more new link, stopping")
+			break
+		}
+		nextLink = issuesResponseObject.Links.Next
 	}
+
 	log.Debugf("Done finding issues for: %s, found: %d", projectID, len(issues))
 	return issuesResponse{issues, nil}, nil
 }
