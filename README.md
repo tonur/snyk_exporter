@@ -1,22 +1,16 @@
-# Snyk exporter [Archived]
+# Snyk exporter [Originally by Lunar]
 
-**Note**: This project is no longer actively maintained and is therefore archived.
-
-[![Build Status](https://travis-ci.com/lunarway/snyk_exporter.svg?branch=master)](https://travis-ci.com/lunarway/snyk_exporter)
-[![Go Report Card](https://goreportcard.com/badge/github.com/lunarway/snyk_exporter)](https://goreportcard.com/report/github.com/lunarway/snyk_exporter)
-[![Docker Repository on Quay](https://quay.io/repository/lunarway/snyk_exporter/status "Docker Repository on Quay")](https://quay.io/repository/lunarway/snyk_exporter)
+**Note**: This project is trying to be maintained by Tonur.
 
 Prometheus exporter for [Snyk](https://snyk.io/) written in Go.
 Allows for exporting scanning data into Prometheus by scraping the Snyk HTTP API.
 
 # Installation
 
-Several pre-compiled binaries are available from the [releases page](https://github.com/lunarway/snyk_exporter/releases).
-
 A docker image is also available on our Quay.io registry.
 
 ```
-docker run quay.io/lunarway/snyk_exporter --snyk.api-token <api-token>
+docker run quay.io/tonur/snyk_exporter --snyk.api-token <api-token>
 ```
 
 # Usage
@@ -24,7 +18,7 @@ docker run quay.io/lunarway/snyk_exporter --snyk.api-token <api-token>
 You need a Snyk API token to access to API.
 Get your through the [Snyk account settings](https://app.snyk.io/account/).
 
-It exposes prometheus metrics on `/metrics` on port `9532` (can be configured).
+It exposes Prometheus metrics on `/metrics` on port `9532` (can be configured).
 
 ```
 snyk_exporter --snyk.api-token <api-token>
@@ -108,7 +102,7 @@ This produces a `snyk_exporter` image that can run with the binary as entry poin
 docker build -t snyk_exporter .
 ```
 
-This is useful if the exporter is to be depoyled in Kubernetes or other dockerized environments.
+This is useful if the exporter is to be deployed in Kubernetes or other dockerized environments.
 
 Here is an example of running the exporter locally.
 
@@ -169,7 +163,7 @@ go test
 ```
 
 # Credits
-This exporter is written with inspiration from [dnanexus/prometheus_snyk_exporter](https://github.com/dnanexus/prometheus_snyk_exporter).
+This exporter is written based on [lunar/snyk_exporter](https://github.com/lunar/snyk_exporter).
 
 Main difference is the aggregations are done by Prometheus instead of in the exporter.
-It also scrapes the Snyk API asyncronously, ie. not when Prometheus tries to scrape the metrics.
+It also scrapes the Snyk API asynchronous, ie. not when Prometheus tries to scrape the metrics.
