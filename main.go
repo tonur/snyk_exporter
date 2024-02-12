@@ -273,7 +273,6 @@ func register(results []gaugeResult) {
 type gaugeResult struct {
 	organization string
 	project      string
-	isMonitored  bool
 	results      []aggregateResult
 }
 
@@ -294,6 +293,7 @@ func collect(ctx context.Context, client *client, organization org) ([]gaugeResu
 		results := aggregateIssues(issues.Issues)
 		gaugeResults = append(gaugeResults, gaugeResult{
 			organization: organization.Attributes.Name,
+			project:      project.Attributes.Name,
 			results:      results,
 		})
 		log.Debugf("Collected data in %v for %s %s", duration, organization.ID, organization.Attributes.Name)
@@ -320,31 +320,33 @@ type aggregateResult struct {
 }
 
 func aggregationKey(i issue) string {
-	return fmt.Sprintf("%s_%s_%s_%t_%t_%t", i.Severity, i.IssueType, i.Title, i.Ignored, i.Coordinates.Upgradeable, i.Coordinates.Patchable)
+	return fmt.Sprintf("%s_%s_%s_%t_%t_%t", i.Attributes.Severity, i.Attributes.Type, i.Attributes.Title, i.Attributes.Ignored, i.Coordinates.Upgradeable, i.Coordinates.Patchable)
 }
 
 func aggregateIssues(issues []issue) []aggregateResult {
 	aggregateResults := make(map[string]aggregateResult)
-
+	log.Debugf("Input issues to aggregate was: %v", issues)
 	for _, issue := range issues {
 		aggregate, ok := aggregateResults[aggregationKey(issue)]
 		if !ok {
 			aggregate = aggregateResult{
-				issueType:   issue.IssueType,
-				title:       issue.Title,
-				severity:    issue.Severity,
+				issueType:   issue.Attributes.Type,
+				title:       issue.Attributes.Title,
+				severity:    issue.Attributes.Severity,
 				count:       0,
-				ignored:     issue.Ignored,
+				ignored:     issue.Attributes.Ignored,
 				upgradeable: issue.Coordinates.Upgradeable,
 				patchable:   issue.Coordinates.Patchable,
 			}
 		}
 		aggregate.count++
 		aggregateResults[aggregationKey(issue)] = aggregate
+		log.Debugf("Added aggregation for issue %v with key %s", issue, aggregationKey(issue))
 	}
 	var output []aggregateResult
 	for i := range aggregateResults {
 		output = append(output, aggregateResults[i])
 	}
+	log.Debugf("Output of aggregation was: %v", output)
 	return output
 }

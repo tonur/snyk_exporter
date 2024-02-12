@@ -81,7 +81,7 @@ func (c *client) getProjects(organizationID string) (projectsResponse, error) {
 		nextLink = projectsResponseObject.Links.Next
 	}
 	log.Debugf("Done finding projects for: %s, found: %d", organizationID, len(projects))
-	return projectsResponse{projects, nil}, nil
+	return projectsResponse{projects, links{}}, nil
 }
 
 func (c *client) getIssues(organizationID, projectID string) (issuesResponse, error) {
@@ -146,7 +146,7 @@ func (c *client) getIssues(organizationID, projectID string) (issuesResponse, er
 	}
 
 	log.Debugf("Done finding issues for: %s, found: %d", projectID, len(issues))
-	return issuesResponse{issues, nil}, nil
+	return issuesResponse{issues, links{}}, nil
 }
 
 func (c *client) do(req *http.Request) (*http.Response, error) {
@@ -179,56 +179,63 @@ func (c *client) do(req *http.Request) (*http.Response, error) {
 	return response, nil
 }
 
+type links struct {
+	Next string `json:"next,omitempty"`
+}
+
 type orgsResponse struct {
 	Orgs  []org `json:"data,omitempty"`
-	Links *struct {
-		Next string `next:"next,omitempty"`
-	} `json:"links,omitempty"`
+	Links links `json:"links,omitempty"`
 }
 
 type org struct {
-	ID         string `json:"id,omitempty"`
-	Type       string `json:"type,omitempty"`
-	Attributes *struct {
-		GroupID string `json:"group_id,omitempty"`
-		Name    string `json:"name,omitempty"`
-	} `json:"attributes,omitempty"`
+	ID         string        `json:"id,omitempty"`
+	Type       string        `json:"type,omitempty"`
+	Attributes orgAttributes `json:"attributes,omitempty"`
+}
+
+type orgAttributes struct {
+	GroupID string `json:"group_id,omitempty"`
+	Name    string `json:"name,omitempty"`
 }
 
 type projectsResponse struct {
 	Projects []project `json:"data,omitempty"`
-	Links    *struct {
-		Next string `next:"next,omitempty"`
-	} `json:"links,omitempty"`
+	Links    links     `json:"links,omitempty"`
 }
 
 type project struct {
-	ID         string `json:"id,omitempty"`
-	Type       string `json:"type,omitempty"`
-	Attributes *struct {
-		Name string `json:"name,omitempty"`
-	} `json:"attributes,omitempty"`
+	ID         string            `json:"id,omitempty"`
+	Type       string            `json:"type,omitempty"`
+	Attributes projectAttributes `json:"attributes,omitempty"`
+}
+
+type projectAttributes struct {
+	Name string `json:"name,omitempty"`
 }
 
 type issuesResponse struct {
 	Issues []issue `json:"data,omitempty"`
-	Links  *struct {
-		Next string `next:"next,omitempty"`
-	} `json:"links,omitempty"`
+	Links  links   `json:"links,omitempty"`
 }
 
 type issue struct {
-	ID          string      `json:"id,omitempty"`
-	IssueType   string      `json:"issueType"`
-	Severity    string      `json:" effective_severity_level,omitempty"`
-	Title       string      `json:"title,omitempty"`
-	Ignored     bool        `json:"ignored"`
-	Coordinates coordinates `json:"coordinates,omitempty"`
+	Attributes  issueAttributes `json:"attributes,omitempty"`
+	Coordinates coordinates     `json:"coordinates,omitempty"`
+}
+
+type issueAttributes struct {
+	ID       string `json:"id,omitempty"`
+	Type     string `json:"type,omitempty"`
+	Title    string `json:"title,omitempty"`
+	Severity string `json:"effective_severity_level,omitempty"`
+	Ignored  bool   `json:"ignored"`
 }
 
 type coordinates struct {
-	Upgradeable bool `json:"is_upgradable"`
-	Patchable   bool `json:"is_patchable"`
+	Upgradeable bool   `json:"is_upgradable"`
+	Patchable   bool   `json:"is_patchable"`
+	Type        string `json:"type"`
 }
 
 type license struct{}
