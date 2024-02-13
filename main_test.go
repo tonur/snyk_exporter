@@ -17,20 +17,20 @@ func TestAggregateIssues(t *testing.T) {
 	}
 	ignoredIssue := func(id, severity, title string) issue {
 		return issue{
-			ID: id,
-			IssueData: issueData{
+			Attributes: issueAttributes{
+				ID: id, 
+				Title: title,
 				Severity: severity,
-				Title:    title,
+				Ignored: true,
 			},
-			Ignored: true,
 		}
 	}
 	iss := func(id, severity, title string) issue {
 		return issue{
-			ID: id,
-			IssueData: issueData{
+			Attributes: issueAttributes{
+				ID: id, 
+				Title: title,
 				Severity: severity,
-				Title:    title,
 			},
 		}
 	}
@@ -126,17 +126,17 @@ func TestAggregateIssues(t *testing.T) {
 			// sort as aggregateIssues does not provide a stable ordered slice
 			sort.Slice(output, func(i, j int) bool {
 				return aggregationKey(issue{
-					IssueData: issueData{
+					Attributes: issueAttributes{
+						Title: output[i].title, 
 						Severity: output[i].severity,
-						Title:    output[i].title,
+						Ignored: output[i].ignored,
 					},
-					Ignored: output[i].ignored,
-				}) < aggregationKey(issue{
-					IssueData: issueData{
-						Severity: output[j].severity,
-						Title:    output[j].title,
+					}) < aggregationKey(issue{
+					Attributes: issueAttributes{
+						Title: output[i].title, 
+						Severity: output[i].severity,
+						Ignored: output[j].ignored,
 					},
-					Ignored: output[j].ignored,
 				})
 			})
 			if !reflect.DeepEqual(output, tc.aggregates) {

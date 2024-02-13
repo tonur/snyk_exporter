@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -18,7 +17,8 @@ type client struct {
 }
 
 func (c *client) getOrganizations() (orgsResponse, error) {
-	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/orgs", c.baseURL), nil)
+	log.Debugf("Start finding organizations")
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/rest/orgs", c.baseURL), nil)
 	if err != nil {
 		return orgsResponse{}, err
 	}
@@ -31,11 +31,13 @@ func (c *client) getOrganizations() (orgsResponse, error) {
 	if err != nil {
 		return orgsResponse{}, err
 	}
+	log.Debugf("Done finding organizations, found: %d", len(orgs.Orgs))
 	return orgs, nil
 }
 
-func (c *client) getProjects(organization string) (projectsResponse, error) {
-	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/org/%s/projects", c.baseURL, organization), nil)
+func (c *client) getProjects(organizationID string) (projectsResponse, error) {
+	log.Debugf("Start finding projects for: %s", organizationID)
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/rest/orgs/%s/projects", c.baseURL, organizationID), nil)
 	if err != nil {
 		return projectsResponse{}, err
 	}
@@ -43,45 +45,119 @@ func (c *client) getProjects(organization string) (projectsResponse, error) {
 	if err != nil {
 		return projectsResponse{}, err
 	}
-	var projects projectsResponse
-	err = json.NewDecoder(response.Body).Decode(&projects)
+	var projectsResponseObject projectsResponse
+	err = json.NewDecoder(response.Body).Decode(&projectsResponseObject)
 	if err != nil {
 		return projectsResponse{}, err
 	}
-	return projects, nil
+	var projects []project
+	projects = append(projects, projectsResponseObject.Projects...)
+
+	var nextLink string = projectsResponseObject.Links.Next
+	// Loop over subsequent pages if there is a 'next' link
+	for nextLink != "" {
+		log.Debugf("More projects to be found, currently: %d", len(projects))
+		req, err := http.NewRequest(http.MethodGet, c.baseURL+nextLink, nil)
+		if err != nil {
+			return projectsResponse{}, err
+		}
+		response, err := c.do(req)
+		if err != nil {
+			return projectsResponse{}, err
+		}
+		defer response.Body.Close()
+
+		err = json.NewDecoder(response.Body).Decode(&projectsResponseObject)
+		if err != nil {
+			return projectsResponse{}, err
+		}
+
+		projects = append(projects, projectsResponseObject.Projects...)
+
+		if nextLink == projectsResponseObject.Links.Next {
+			log.Debugf("No more new link, stopping")
+			break
+		}
+		nextLink = projectsResponseObject.Links.Next
+	}
+	log.Debugf("Done finding projects for: %s, found: %d", organizationID, len(projects))
+	return projectsResponse{projects, links{}}, nil
 }
 
 func (c *client) getIssues(organizationID, projectID string) (issuesResponse, error) {
-	postData := issuesPostData{
-		Filters: issueFilters{
-			Severities: []string{
-				"critical", "high", "medium", "low",
-			},
-		},
-	}
-	var reader bytes.Buffer
-	err := json.NewEncoder(&reader).Encode(&postData)
+	log.Debugf("Start finding issues for: %s", projectID)
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/rest/orgs/%s/issues", c.baseURL, organizationID), nil)
 	if err != nil {
 		return issuesResponse{}, err
 	}
-	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/org/%s/project/%s/aggregated-issues", c.baseURL, organizationID, projectID), &reader)
-	if err != nil {
-		return issuesResponse{}, err
-	}
+	// Find any issues that has a relation to this project ID
+	query := req.URL.Query()
+	query.Set("scan_item.id", projectID)
+	query.Set("scan_item.type", "project")
+	req.URL.RawQuery = query.Encode()
+
 	response, err := c.do(req)
 	if err != nil {
 		return issuesResponse{}, err
 	}
-	var issues issuesResponse
-	err = json.NewDecoder(response.Body).Decode(&issues)
+	defer response.Body.Close()
+
+	var issuesResponseObject issuesResponse
+	err = json.NewDecoder(response.Body).Decode(&issuesResponseObject)
 	if err != nil {
 		return issuesResponse{}, err
 	}
-	return issues, nil
+
+	var issues []issue
+	issues = append(issues, issuesResponseObject.Issues...)
+
+	var nextLink string = issuesResponseObject.Links.Next
+	// Loop over subsequent pages if there is a 'next' link
+	for nextLink != "" {
+		log.Debugf("More issues to be found, currently: %d", len(issues))
+		req, err := http.NewRequest(http.MethodGet, c.baseURL+nextLink, nil)
+		// Find any issues that has a relation to this project ID
+		query := req.URL.Query()
+		query.Set("scan_item.id", projectID)
+		query.Set("scan_item.type", "project")
+		req.URL.RawQuery = query.Encode()
+
+		if err != nil {
+			return issuesResponse{}, err
+		}
+		response, err := c.do(req)
+		if err != nil {
+			return issuesResponse{}, err
+		}
+		defer response.Body.Close()
+
+		err = json.NewDecoder(response.Body).Decode(&issuesResponseObject)
+		if err != nil {
+			return issuesResponse{}, err
+		}
+
+		issues = append(issues, issuesResponseObject.Issues...)
+
+		if nextLink == issuesResponseObject.Links.Next {
+			log.Debugf("No more new link, stopping")
+			break
+		}
+		nextLink = issuesResponseObject.Links.Next
+	}
+
+	log.Debugf("Done finding issues for: %s, found: %d", projectID, len(issues))
+	return issuesResponse{issues, links{}}, nil
 }
 
 func (c *client) do(req *http.Request) (*http.Response, error) {
-	req.Header.Add("Authorization", fmt.Sprintf("token %s", c.token))
+	req.Header.Add("authorization", fmt.Sprintf("TOKEN %s", c.token))
+
+	query := req.URL.Query()
+	query.Set("version", "2024-01-23")
+	query.Set("limit", "100")
+	req.URL.RawQuery = query.Encode()
+
+	log.Debugf("Running request to URL: %v", req.URL)
 	response, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -98,71 +174,68 @@ func (c *client) do(req *http.Request) (*http.Response, error) {
 		} else {
 			log.Debugf("Failed request dump: %s", requestDump)
 		}
-		return nil, fmt.Errorf("request not OK: %s: body: %s", response.Status, body)
+		return nil, fmt.Errorf("request not OK: %s: url: %s body: %s", response.Status, req.URL, body)
 	}
 	return response, nil
 }
 
+type links struct {
+	Next string `json:"next,omitempty"`
+}
+
 type orgsResponse struct {
-	Orgs []org `json:"orgs,omitempty"`
+	Orgs  []org `json:"data,omitempty"`
+	Links links `json:"links,omitempty"`
 }
 
 type org struct {
-	ID    string `json:"id,omitempty"`
-	Name  string `json:"name,omitempty"`
-	Group *struct {
-		Name string `json:"name,omitempty"`
-		ID   string `json:"id,omitempty"`
-	} `json:"group,omitempty"`
+	ID         string        `json:"id,omitempty"`
+	Type       string        `json:"type,omitempty"`
+	Attributes orgAttributes `json:"attributes,omitempty"`
+}
+
+type orgAttributes struct {
+	GroupID string `json:"group_id,omitempty"`
+	Name    string `json:"name,omitempty"`
 }
 
 type projectsResponse struct {
-	Org      projectOrg `json:"org,omitempty"`
-	Projects []project  `json:"projects,omitempty"`
-}
-
-type projectOrg struct {
-	ID   string `json:"id,omitempty"`
-	Name string `json:"name,omitempty"`
+	Projects []project `json:"data,omitempty"`
+	Links    links     `json:"links,omitempty"`
 }
 
 type project struct {
-	Name          string `json:"name,omitempty"`
-	ID            string `json:"id,omitempty"`
-	IsMonitored   bool   `json:"isMonitored,omitempty"`
+	ID         string            `json:"id,omitempty"`
+	Type       string            `json:"type,omitempty"`
+	Attributes projectAttributes `json:"attributes,omitempty"`
+}
+
+type projectAttributes struct {
+	Name string `json:"name,omitempty"`
 }
 
 type issuesResponse struct {
-	Issues []issue `json:"issues,omitempty"`
+	Issues []issue `json:"data,omitempty"`
+	Links  links   `json:"links,omitempty"`
 }
 
 type issue struct {
-	ID        string    `json:"id,omitempty"`
-	IssueType string    `json:"issueType"`
-	IssueData issueData `json:"issueData,omitempty"`
-	Ignored   bool      `json:"isIgnored"`
-	FixInfo   fixInfo   `json:"fixInfo,omitempty"`
+	Attributes  issueAttributes `json:"attributes,omitempty"`
+	Coordinates coordinates     `json:"coordinates,omitempty"`
 }
 
-type issueData struct {
+type issueAttributes struct {
 	ID       string `json:"id,omitempty"`
+	Type     string `json:"type,omitempty"`
 	Title    string `json:"title,omitempty"`
-	Severity string `json:"severity,omitempty"`
+	Severity string `json:"effective_severity_level,omitempty"`
+	Ignored  bool   `json:"ignored"`
 }
 
-type fixInfo struct {
-	Upgradeable bool `json:"isUpgradable"`
-	Patchable   bool `json:"isPatchable"`
+type coordinates struct {
+	Upgradeable bool   `json:"is_upgradable"`
+	Patchable   bool   `json:"is_patchable"`
+	Type        string `json:"type"`
 }
 
 type license struct{}
-
-type issuesPostData struct {
-	Filters issueFilters `json:"filters,omitempty"`
-}
-type issueFilters struct {
-	Severities []string `json:"severities,omitempty"`
-	Types      []string `json:"types,omitempty"`
-	Ignored    bool     `json:"ignored,omitempty"`
-	Patched    bool     `json:"patched,omitempty"`
-}
