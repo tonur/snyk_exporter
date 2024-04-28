@@ -1,22 +1,11 @@
-FROM golang:1.19.3 as builder
-WORKDIR /src
-ENV CGO_ENABLED=0
-ENV GOOS=linux
+FROM python:3.12-slim
 
-RUN apt-get update
-RUN apt-get install -y ca-certificates
+WORKDIR /app
 
-COPY go.mod .
-COPY go.sum .
+COPY src/requirements.txt .
 
-RUN go mod download
+RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY src/app.py .
 
-RUN go build -o /tmp/snyk_exporter
-
-FROM scratch
-
-ENTRYPOINT [ "/snyk_exporter" ]
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=builder /tmp/snyk_exporter /
+CMD ["python", "app.py"]
