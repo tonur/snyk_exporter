@@ -20,8 +20,9 @@ pub struct ListOrgProjects200ResponseDataInner {
     pub id: uuid::Uuid,
     #[serde(rename = "meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<Box<crate::models::ListOrgProjects200ResponseDataInnerMeta>>,
-    #[serde(rename = "relationships", skip_serializing_if = "Option::is_none")]
-    pub relationships: Option<Box<crate::models::ProjectRelationships>>,
+    // #TODO - Relationships cause a StackOverflow error, need to investigate what causes this.
+    // #[serde(rename = "relationships", skip_serializing_if = "Option::is_none")]
+    // pub relationships: Option<Box<crate::models::ProjectRelationships>>,
     /// The Resource type.
     #[serde(rename = "type")]
     pub r#type: String,
@@ -33,7 +34,7 @@ impl ListOrgProjects200ResponseDataInner {
             attributes: Box::new(attributes),
             id,
             meta: None,
-            relationships: None,
+            // relationships: None,
             r#type,
         }
     }
