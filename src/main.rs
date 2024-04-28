@@ -111,8 +111,8 @@ pub async fn poll_api(arguments: &AppArguments) {
                     arguments,
                     organization_id.to_string(),
                     project_id.to_string(),
-                )
-                .await;
+                ).await;
+
                 let results = aggregate_issues(issues);
                 SNYK_VULNERABILITIES_TOTAL
                     .with_label_values(&[
@@ -123,10 +123,12 @@ pub async fn poll_api(arguments: &AppArguments) {
                         &results[0].upgradeable.to_string(),
                         &results[0].patchable.to_string(),
                         &results[0].count.to_string(),
-                    ])
-                    .set(results[0].count.into());
+                    ]).set(results[0].count.into());
             }
         }
+
+        // Sleep for the configured interval
+        task::sleep(Duration::from_secs(arguments.snyk_interval.try_into().unwrap())).await;
     }
 }
 
@@ -199,31 +201,22 @@ async fn get_organizations(arguments: &AppArguments) -> Vec<String> {
             &configuration,
             "2024-04-22",
             starting_after.as_deref(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
+            None, Some(100), None, None, None, None, None,
         )
         .await
         .unwrap();
 
         all_organizations.extend(organizations.data.iter().map(|org| org.id.to_string()));
 
-        let next = organizations.links.next;
+        let next = organizations.links.next.clone();
         if next.is_none() {
             break;
         }
-        let next = next.clone().unwrap();
-        if let openapi::models::LinkProperty::String(next_url) = *next {
-            let queries = querystring::querify(next_url.as_str());
-            if let Some(entry) = queries.iter().find(|&&(key, _)| key == "starting_after") {
-                starting_after = Some(entry.1.to_string());
-            } else {
-                break;
-            }
+
+        starting_after = get_next_starting_after(*next.unwrap());
+
+        if starting_after.is_none() {
+            break;
         }
     }
 
@@ -245,59 +238,30 @@ async fn get_projects(arguments: &AppArguments, organization_id: String) -> Vec<
             &configuration,
             organization_id.as_str(),
             "2024-04-22",
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            starting_after.as_deref(),
-            None,
-            None,
+            None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None, None,
+            starting_after.as_deref(), None, Some(100),
         )
         .await
         .unwrap();
 
         all_projects.extend(
-            projects
-                .data
-                .iter()
-                .map(|projects| {
-                    projects
-                        .iter()
-                        .map(|project| project.id.to_string())
-                        .collect::<Vec<String>>()
+            projects.data.iter().map(|projects| {
+                    projects.iter().map(|project| project.id.to_string()).collect::<Vec<String>>()
                 })
                 .flatten()
                 .collect::<Vec<String>>(),
         );
 
-        let next = projects.links.next;
+        let next = projects.links.next.clone();
         if next.is_none() {
             break;
         }
-        let next = next.clone().unwrap();
-        if let openapi::models::LinkProperty::String(next_url) = *next {
-            let queries = querystring::querify(next_url.as_str());
-            if let Some(entry) = queries.iter().find(|&&(key, _)| key == "starting_after") {
-                starting_after = Some(entry.1.to_string());
-            } else {
-                break;
-            }
+
+        starting_after = get_next_starting_after(*next.unwrap());
+
+        if starting_after.is_none() {
+            break;
         }
     }
 
@@ -325,37 +289,41 @@ async fn get_issues(
             organization_id.as_str(),
             starting_after.as_deref(),
             None,
-            None,
+            Some(100),
             Some(project_id.as_str()),
             Some(ScanItemType::Project),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
+            None, None, None, None, None, None, None, None,
         )
         .await
         .unwrap();
 
         all_issues.extend(issues.data.iter().map(|issue| issue.clone()));
 
-        let next = issues.links.unwrap().next;
+        let next = issues.links.unwrap().next.clone();
         if next.is_none() {
             break;
         }
-        let next = next.clone().unwrap();
-        if let openapi::models::LinkProperty::String(next_url) = *next {
-            let queries = querystring::querify(next_url.as_str());
-            if let Some(entry) = queries.iter().find(|&&(key, _)| key == "starting_after") {
-                starting_after = Some(entry.1.to_string());
-            } else {
-                break;
-            }
+
+        starting_after = get_next_starting_after(*next.unwrap());
+
+        if starting_after.is_none() {
+            break;
         }
     }
 
     return all_issues;
+}
+
+fn get_next_starting_after(next_link: openapi::models::LinkProperty) -> Option<String> {
+    if let openapi::models::LinkProperty::String(next_url) = next_link {
+        let queries = querystring::querify(next_url.as_str());
+        log::debug!("Found next url: {:?}", next_url);
+        if let Some(entry) = queries.iter().find(|&&(key, _)| key == "starting_after") {
+            log::info!("Next starting_after: {:?}", entry);
+            return Some(urlencoding::decode(entry.1).unwrap().to_string());
+        } else {
+            return None;
+        }
+    }
+    return None;
 }
