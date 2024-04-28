@@ -43,7 +43,7 @@ pub struct AppArguments {
     snyk_interval: i32,
     /// Snyk organization ID to scrape projects from (can be repeated for multiple organizations)
     #[arg(long = "snyk.organization")]
-    snyk_organizations: String,
+    snyk_organizations: Option<String>,
     /// Timeout for requests against Snyk API
     #[arg(long = "snyk.timeout", default_value = "10")]
     request_timeout: i32,
@@ -56,21 +56,7 @@ pub struct AppArguments {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
-    let arguments_result = AppArguments::try_parse();
-
-    let arguments: AppArguments;
-    if arguments_result.is_err() {
-        let app_arguments_file = "AppArguments.json";
-        if std::path::Path::new(app_arguments_file).exists() {
-            let file_content =
-                std::fs::read_to_string(app_arguments_file).expect("Failed to read the file");
-            arguments = serde_json::from_str(&file_content).expect("JSON was not well-formatted")
-        } else {
-            arguments = arguments_result.unwrap();
-        }
-    } else {
-        arguments = arguments_result.unwrap();
-    }
+    let arguments = AppArguments::parse();
 
     log::debug!("Starting snyk_exporter with arguments: {:?}", arguments);
 
@@ -201,12 +187,8 @@ fn aggregate_issues(issues: Vec<Issue>) -> Vec<AggregateResult> {
 async fn get_organizations(arguments: &AppArguments) -> Vec<String> {
     let mut configuration = openapi::apis::configuration::Configuration::default();
     configuration.api_key = Some(openapi::apis::configuration::ApiKey {
-        prefix: None,
-        // Configuration should be like: --header 'Token xxx'
-        key: format!(
-            "authorization={}",
-            format!("Token {}", arguments.snyk_api_token)
-        ),
+        prefix: Some("Token".to_string()),
+        key: arguments.snyk_api_token.clone(),
     });
 
     let mut all_organizations = Vec::new();
@@ -215,7 +197,7 @@ async fn get_organizations(arguments: &AppArguments) -> Vec<String> {
     loop {
         let organizations = openapi::apis::orgs_api::list_orgs(
             &configuration,
-            "2022-10-01",
+            "2024-04-22",
             starting_after.as_deref(),
             None,
             None,
@@ -234,14 +216,15 @@ async fn get_organizations(arguments: &AppArguments) -> Vec<String> {
         if next.is_none() {
             break;
         }
-
-        starting_after = match next {
-            Some(property) => match *property {
-                openapi::models::LinkProperty::String(string) => Some(*string),
-                _ => None,
-            },
-            None => None,
-        };
+        let next = next.clone().unwrap();
+        if let openapi::models::LinkProperty::String(next_url) = *next {
+            let queries = querystring::querify(next_url.as_str());
+            if let Some(entry) = queries.iter().find(|&&(key, _)| key == "starting_after") {
+                starting_after = Some(entry.1.to_string());
+            } else {
+                break;
+            }
+        }
     }
 
     return all_organizations;
@@ -250,12 +233,8 @@ async fn get_organizations(arguments: &AppArguments) -> Vec<String> {
 async fn get_projects(arguments: &AppArguments, organization_id: String) -> Vec<String> {
     let mut configuration = openapi::apis::configuration::Configuration::default();
     configuration.api_key = Some(openapi::apis::configuration::ApiKey {
-        prefix: None,
-        // Configuration should be like: --header 'Token xxx'
-        key: format!(
-            "authorization={}",
-            format!("Token {}", arguments.snyk_api_token)
-        ),
+        prefix: Some("Token".to_string()),
+        key: arguments.snyk_api_token.clone(),
     });
 
     let mut all_projects = Vec::new();
@@ -265,7 +244,7 @@ async fn get_projects(arguments: &AppArguments, organization_id: String) -> Vec<
         let projects = openapi::apis::projects_api::list_org_projects(
             &configuration,
             organization_id.as_str(),
-            "2022-10-01",
+            "2024-04-22",
             None,
             None,
             None,
@@ -311,14 +290,15 @@ async fn get_projects(arguments: &AppArguments, organization_id: String) -> Vec<
         if next.is_none() {
             break;
         }
-
-        starting_after = match next {
-            Some(property) => match *property {
-                openapi::models::LinkProperty::String(string) => Some(*string),
-                _ => None,
-            },
-            None => None,
-        };
+        let next = next.clone().unwrap();
+        if let openapi::models::LinkProperty::String(next_url) = *next {
+            let queries = querystring::querify(next_url.as_str());
+            if let Some(entry) = queries.iter().find(|&&(key, _)| key == "starting_after") {
+                starting_after = Some(entry.1.to_string());
+            } else {
+                break;
+            }
+        }
     }
 
     return all_projects;
@@ -331,12 +311,8 @@ async fn get_issues(
 ) -> Vec<Issue> {
     let mut configuration = openapi::apis::configuration::Configuration::default();
     configuration.api_key = Some(openapi::apis::configuration::ApiKey {
-        prefix: None,
-        // Configuration should be like: --header 'Token xxx'
-        key: format!(
-            "authorization={}",
-            format!("Token {}", arguments.snyk_api_token)
-        ),
+        prefix: Some("Token".to_string()),
+        key: arguments.snyk_api_token.clone(),
     });
 
     let mut all_issues = Vec::new();
@@ -345,7 +321,7 @@ async fn get_issues(
     loop {
         let issues = openapi::apis::issues_api::list_org_issues(
             &configuration,
-            "2022-10-01",
+            "2024-04-22",
             organization_id.as_str(),
             starting_after.as_deref(),
             None,
@@ -370,14 +346,15 @@ async fn get_issues(
         if next.is_none() {
             break;
         }
-
-        starting_after = match next {
-            Some(property) => match *property {
-                openapi::models::LinkProperty::String(string) => Some(*string),
-                _ => None,
-            },
-            None => None,
-        };
+        let next = next.clone().unwrap();
+        if let openapi::models::LinkProperty::String(next_url) = *next {
+            let queries = querystring::querify(next_url.as_str());
+            if let Some(entry) = queries.iter().find(|&&(key, _)| key == "starting_after") {
+                starting_after = Some(entry.1.to_string());
+            } else {
+                break;
+            }
+        }
     }
 
     return all_issues;
