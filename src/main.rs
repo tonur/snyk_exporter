@@ -1,7 +1,7 @@
 use actix_web::{web, App, HttpServer};
 use actix_web_opentelemetry::{PrometheusMetricsHandler, RequestMetrics, RequestTracing};
 use async_std::task;
-use clap::{Command, CommandFactory, Parser};
+use clap::Parser;
 use lazy_static::lazy_static;
 use openapi::models::{Issue, ScanItemType};
 use opentelemetry::{global, KeyValue};
@@ -54,21 +54,24 @@ pub struct AppArguments {
 
 #[actix_web::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let app_arguments_file = "AppArguments.json";
-    let arguments = if std::path::Path::new(app_arguments_file).exists() {
-        let file_content = std::fs::read_to_string(app_arguments_file).expect("Failed to read the file");
-        let mut items: HashMap<String, String> = serde_json::from_str(&file_content).unwrap_or_default();
-        items.extend(std::env::args().map(|arg| {
-            let mut parts = arg.splitn(2, '=');
-            let key = parts.next().unwrap_or_default().to_string();
-            let value = parts.next().unwrap_or_default().to_string();
-            (key, value)
-        }));
-        AppArguments::parse_from(items.iter().map(|(k, v)| format!("{}={}", k, v)))
     env_logger::init();
+
+    let arguments_result = AppArguments::try_parse();
+
+    let arguments: AppArguments;
+    if arguments_result.is_err() {
+        let app_arguments_file = "AppArguments.json";
+        if std::path::Path::new(app_arguments_file).exists() {
+            let file_content =
+                std::fs::read_to_string(app_arguments_file).expect("Failed to read the file");
+            arguments = serde_json::from_str(&file_content).expect("JSON was not well-formatted")
+        } else {
+            arguments = arguments_result.unwrap();
+        }
     } else {
-        AppArguments::parse_from(std::env::args())
-    };
+        arguments = arguments_result.unwrap();
+    }
+
     log::debug!("Starting snyk_exporter with arguments: {:?}", arguments);
 
     REGISTRY
